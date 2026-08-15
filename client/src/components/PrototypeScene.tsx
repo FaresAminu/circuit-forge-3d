@@ -10,6 +10,7 @@ import { STLExporter } from "three/addons/exporters/STLExporter.js";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import type { AssemblyPart } from "@/lib/prototypeCatalog";
 import type { ConnectionRoute } from "@/lib/connectionPlanner";
+import { createComponentModel, MODEL_SCALE } from "@/lib/componentModels";
 
 export type PrototypeSceneHandle = {
   exportGlb: () => void;
@@ -29,7 +30,7 @@ type PrototypeSceneProps = {
   onSelect: (id: string) => void;
 };
 
-const SCALE = 0.012;
+const SCALE = MODEL_SCALE;
 
 function download(blob: Blob, filename: string) {
   const link = document.createElement("a");
@@ -39,23 +40,6 @@ function download(blob: Blob, filename: string) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(link.href);
-}
-
-function material(color: string, selected: boolean) {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.08, emissive: selected ? new THREE.Color("#2457ff") : new THREE.Color("#000000"), emissiveIntensity: selected ? 0.35 : 0 });
-}
-
-function scaled([width, depth, height]: [number, number, number]) {
-  return [width * SCALE, height * SCALE, depth * SCALE] as const;
-}
-
-function addBox(group: THREE.Group, size: [number, number, number], color: string, position: [number, number, number], selected: boolean) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material(color, selected));
-  mesh.position.set(...position);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  group.add(mesh);
-  return mesh;
 }
 
 function addLabel(group: THREE.Group, part: AssemblyPart) {
@@ -68,58 +52,9 @@ function addLabel(group: THREE.Group, part: AssemblyPart) {
 }
 
 function buildPart(part: AssemblyPart, selected: boolean, showLabels: boolean) {
-  const group = new THREE.Group();
-  group.name = part.name;
-  group.userData.partId = part.id;
-  const [width, height, depth] = scaled(part.dimensions);
+  const group = createComponentModel(part, { selected });
   const [x, y, z] = part.position.map((value) => value * SCALE);
   group.position.set(x, z, y);
-
-  if (part.kind === "cables") {
-    const cableColors = ["#f0523e", "#2457ff", "#d6df35", "#20242b", "#f4f1e6"];
-    const count = Math.min(part.quantity, 16);
-    for (let index = 0; index < count; index += 1) {
-      const offset = (index - count / 2) * 0.07;
-      const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(-1.05, 0.1, offset), new THREE.Vector3(-0.38, 0.4 + (index % 3) * 0.04, offset * 0.5), new THREE.Vector3(0.25, 0.24, -offset * 0.4), new THREE.Vector3(0.98, 0.1, offset)]);
-      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.011, 8, false), material(cableColors[index % cableColors.length], selected));
-      tube.userData.partId = part.id;
-      group.add(tube);
-    }
-    if (showLabels) addLabel(group, part);
-    return group;
-  }
-
-  const boardKinds = ["raspberry", "jetson", "arduino", "esp32", "ultrasonic", "soil", "bme280", "camera", "lora", "gps", "relay", "driver", "buck", "oled", "terminal"];
-  if (boardKinds.includes(part.kind)) {
-    addBox(group, [width, height, depth], part.color, [0, 0, 0], selected);
-    if (["raspberry", "arduino", "esp32", "lora", "gps", "driver", "buck"].includes(part.kind)) {
-      addBox(group, [width * 0.18, height * 0.42, depth * 1.25], "#b8bdc4", [-width * 0.31, height * 0.03, 0], selected);
-      for (let index = 0; index < 5; index += 1) addBox(group, [width * 0.08, height * 0.1, depth * 1.18], "#1d232e", [width * (0.1 + index * 0.075), height * 0.04, 0], selected);
-    }
-    if (part.kind === "jetson") for (let index = 0; index < 7; index += 1) addBox(group, [width * 0.64, height * 0.08, depth * 1.08], "#12171d", [0, height * (0.2 + index * 0.1), 0], selected);
-    if (part.kind === "ultrasonic") [-width * 0.2, width * 0.2].forEach((value) => { const eye = new THREE.Mesh(new THREE.CylinderGeometry(depth * 0.3, depth * 0.3, height * 0.28, 24), material("#aeb8bd", selected)); eye.rotation.x = Math.PI / 2; eye.position.set(value, height * 0.04, depth * 0.5); eye.userData.partId = part.id; group.add(eye); });
-    if (part.kind === "soil") [-width * 0.16, width * 0.16].forEach((value) => addBox(group, [width * 0.12, height * 0.32, depth * 3.2], "#d7bd75", [value, -height * 0.06, -depth * 1.7], selected));
-    if (part.kind === "camera") { const lens = new THREE.Mesh(new THREE.CylinderGeometry(width * 0.23, width * 0.23, height * 0.75, 24), material("#28333c", selected)); lens.position.set(0, height * 0.72, 0); lens.userData.partId = part.id; group.add(lens); }
-    if (part.kind === "oled") addBox(group, [width * 0.76, height * 0.15, depth * 0.76], "#315fba", [0, height * 0.56, 0], selected);
-  } else if (part.kind === "breadboard") {
-    addBox(group, [width, height, depth], part.color, [0, 0, 0], selected);
-    for (let row = 0; row < 4; row += 1) for (let col = 0; col < 12; col += 1) { const hole = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 8), material("#b6b7b3", false)); hole.position.set(-width * 0.4 + col * (width * 0.07), height * 0.52, -depth * 0.28 + row * (depth * 0.2)); hole.userData.partId = part.id; group.add(hole); }
-  } else if (part.kind === "dht22") {
-    addBox(group, [width, height, depth], part.color, [0, 0, 0], selected);
-    for (let line = 0; line < 4; line += 1) addBox(group, [width * 0.6, height * 0.05, depth * 1.08], "#b7bdc3", [0, height * (0.14 + line * 0.13), 0], selected);
-  } else if (part.kind === "servo") {
-    addBox(group, [width, height, depth], part.color, [0, 0, 0], selected);
-    const horn = new THREE.Mesh(new THREE.CylinderGeometry(width * 0.2, width * 0.2, height * 0.16, 20), material("#eef0ed", selected)); horn.position.set(0, height * 0.58, 0); horn.userData.partId = part.id; group.add(horn);
-  } else if (part.kind === "battery") {
-    addBox(group, [width, height, depth], part.color, [0, 0, 0], selected);
-    const terminal = new THREE.Mesh(new THREE.CylinderGeometry(width * 0.08, width * 0.08, height * 0.2, 16), material("#cc433f", selected)); terminal.position.set(width * 0.24, height * 0.58, 0); terminal.userData.partId = part.id; group.add(terminal);
-  } else if (part.kind === "solar") {
-    addBox(group, [width, height, depth], part.color, [0, 0, 0], selected);
-    for (let line = 0; line < 5; line += 1) addBox(group, [width * 0.012, height * 0.12, depth * 0.88], "#8eb7da", [-width * 0.34 + line * width * 0.17, height * 0.55, 0], false);
-  } else if (part.kind === "pump" || part.kind === "valve") {
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(depth * 0.42, depth * 0.42, width * 0.82, 24), material(part.color, selected)); body.rotation.z = Math.PI / 2; body.userData.partId = part.id; group.add(body);
-    addBox(group, [width * 0.24, height * 0.55, depth * 0.45], "#d0d8dc", [width * 0.52, 0, 0], selected);
-  }
   if (showLabels) addLabel(group, part);
   return group;
 }

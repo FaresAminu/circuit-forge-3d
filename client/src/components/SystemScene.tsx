@@ -8,11 +8,12 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import type { AssemblyPart } from "@/lib/prototypeCatalog";
 import type { ConnectionRoute, ExternalMode } from "@/lib/connectionPlanner";
+import { createComponentModel, MODEL_SCALE } from "@/lib/componentModels";
 
 export type SystemSceneHandle = { exportGlb: () => void; exportPng: () => void; resetView: () => void };
 type SystemSceneProps = { parts: AssemblyPart[]; routes: ConnectionRoute[]; mode: ExternalMode; showLabels: boolean };
 
-const SCALE = 0.012;
+const SCALE = MODEL_SCALE;
 const COLORS: Record<ConnectionRoute["connectionClass"], string> = { power: "#ec6b37", data: "#2457ff", control: "#d6df35", wireless: "#a669f7", host: "#19a9bd" };
 // Reference envelopes in millimetres, scaled against the Raspberry Pi 4 model (85.6 × 56 mm).
 const PHONE_REFERENCE = { width: 72, height: 152, depth: 8 };
@@ -32,18 +33,7 @@ function addTag(group: THREE.Group, text: string, position: THREE.Vector3, color
 
 function addPart(root: THREE.Group, part: AssemblyPart, labels: boolean) {
   const [w, d, h] = part.dimensions; const position = new THREE.Vector3(part.position[0] * SCALE, part.position[2] * SCALE + h * SCALE * 0.45, part.position[1] * SCALE);
-  const group = new THREE.Group(); group.name = part.shortName; group.userData.partId = part.id; root.add(group);
-  if (part.kind === "cables") {
-    const count = Math.min(part.quantity, 16); const cableColors = ["#f0523e", "#2457ff", "#d6df35", "#20242b", "#f4f1e6"];
-    for (let i = 0; i < count; i += 1) { const offset = (i - count / 2) * 0.08; const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(-1.18, 0.13, offset), new THREE.Vector3(-0.28, 0.48 + (i % 3) * 0.04, offset * 0.5), new THREE.Vector3(0.38, 0.28, -offset * 0.35), new THREE.Vector3(1.04, 0.13, offset)]); const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 30, 0.011, 7, false), mat(cableColors[i % cableColors.length])); group.add(tube); }
-    if (labels) addTag(group, `${part.quantity} JUMPERS`, new THREE.Vector3(0, 0.7, 0), "#ec6b37");
-    return group;
-  }
-  box(group, [w * SCALE, h * SCALE, d * SCALE], part.color, new THREE.Vector3());
-  if (["raspberry", "jetson", "arduino", "esp32", "lora", "gps", "driver", "buck"].includes(part.kind)) box(group, [w * SCALE * 0.17, h * SCALE * 0.38, d * SCALE * 1.14], "#bbc4ca", new THREE.Vector3(-w * SCALE * 0.31, 0.02, 0));
-  if (part.kind === "camera") { const lens = new THREE.Mesh(new THREE.CylinderGeometry(w * SCALE * 0.22, w * SCALE * 0.22, h * SCALE * 0.65, 20), mat("#202a33")); lens.position.set(0, h * SCALE * 0.78, 0); group.add(lens); }
-  if (part.kind === "battery") { const terminal = new THREE.Mesh(new THREE.CylinderGeometry(w * SCALE * 0.07, w * SCALE * 0.07, h * SCALE * 0.24, 14), mat("#d84739")); terminal.position.set(w * SCALE * 0.25, h * SCALE * 0.58, 0); group.add(terminal); }
-  if (["pump", "valve"].includes(part.kind)) { const barrel = new THREE.Mesh(new THREE.CylinderGeometry(d * SCALE * 0.38, d * SCALE * 0.38, w * SCALE * 0.7, 20), mat(part.color)); barrel.rotation.z = Math.PI / 2; group.add(barrel); }
+  const group = createComponentModel(part); root.add(group);
   group.position.copy(position);
   if (labels) addTag(root, part.shortName.toUpperCase(), position.clone().add(new THREE.Vector3(0, h * SCALE * 0.75 + 0.17, 0)), part.color);
   return group;
